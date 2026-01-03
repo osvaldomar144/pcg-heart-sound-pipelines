@@ -1,0 +1,32 @@
+{
+  "bandpass_mel": {
+    "n_files_checked": 6,
+    "example_spec_shape": [
+      64,
+      63
+    ],
+    "rms_raw_mean": 0.09732998791150749,
+    "rms_after_mean": 0.09880752488970757,
+    "peak_after_max": 1.9345539808273315
+  },
+  "fft_denoise_mel": {
+    "n_files_checked": 6,
+    "example_spec_shape": [
+      64,
+      63
+    ],
+    "rms_raw_mean": 0.09732998791150749,
+    "rms_after_mean": 0.09821988766392072,
+    "peak_after_max": 0.9670408368110657
+  },
+  "wavelet_denoise_mel": {
+    "n_files_checked": 6,
+    "example_spec_shape": [
+      64,
+      63
+    ],
+    "rms_raw_mean": 0.09732998791150749,
+    "rms_after_mean": 0.09825826808810234,
+    "peak_after_max": 0.9795604944229126
+  }
+}

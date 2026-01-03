@@ -1,0 +1,98 @@
+{
+  "files": [
+    {
+      "path": "data/train/healthy/b0123.wav",
+      "label": 0,
+      "sr_raw": 2000,
+      "len_raw": 16000,
+      "rms_raw": 0.17699843645095825,
+      "peak_raw": 1.0,
+      "rms_after": 0.09472274035215378,
+      "peak_after": 0.4827091693878174,
+      "len_after": 8000,
+      "spec_shape": [
+        64,
+        63
+      ]
+    },
+    {
+      "path": "data/train/healthy/e01947.wav",
+      "label": 0,
+      "sr_raw": 2000,
+      "len_raw": 16238,
+      "rms_raw": 0.07143805176019669,
+      "peak_raw": 0.399993896484375,
+      "rms_after": 0.09780026227235794,
+      "peak_after": 0.5406827330589294,
+      "len_after": 8000,
+      "spec_shape": [
+        64,
+        63
+      ]
+    },
+    {
+      "path": "data/train/healthy/e00481.wav",
+      "label": 0,
+      "sr_raw": 2000,
+      "len_raw": 35932,
+      "rms_raw": 0.07574702054262161,
+      "peak_raw": 0.721588134765625,
+      "rms_after": 0.10166370123624802,
+      "peak_after": 0.9795604944229126,
+      "len_after": 8000,
+      "spec_shape": [
+        64,
+        63
+      ]
+    },
+    {
+      "path": "data/train/unhealthy/b0137.wav",
+      "label": 1,
+      "sr_raw": 2000,
+      "len_raw": 16000,
+      "rms_raw": 0.12766240537166595,
+      "peak_raw": 1.0,
+      "rms_after": 0.10089083015918732,
+      "peak_after": 0.7005884051322937,
+      "len_after": 8000,
+      "spec_shape": [
+        64,
+        63
+      ]
+    },
+    {
+      "path": "data/train/unhealthy/e01953.wav",
+      "label": 1,
+      "sr_raw": 2000,
+      "len_raw": 24242,
+      "rms_raw": 0.1248261108994484,
+      "peak_raw": 0.999969482421875,
+      "rms_after": 0.09449300915002823,
+      "peak_after": 0.8009004592895508,
+      "len_after": 8000,
+      "spec_shape": [
+        64,
+        63
+      ]
+    },
+    {
+      "path": "data/train/unhealthy/a0023.wav",
+      "label": 1,
+      "sr_raw": 2000,
+      "len_raw": 61162,
+      "rms_raw": 0.007307902444154024,
+      "peak_raw": 0.08172607421875,
+      "rms_after": 0.09997906535863876,
+      "peak_after": 0.9016710519790649,
+      "len_after": 8000,
+      "spec_shape": [
+        64,
+        63
+      ]
+    }
+  ],
+  "checks": {
+    "target_sr": 2000,
+    "chunk_len_samples": 8000
+  }
+}
