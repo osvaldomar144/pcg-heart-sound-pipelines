@@ -88,6 +88,23 @@ Output:
 
 Questo porta a un prossimo intervento: **inserire un limiter/soft-clip dopo il band-pass** per rendere la pipeline più robusta.
 
+### 4) Data preprocessing (generazione dataset preprocessato)
+Script: `scripts/data_preprocessing.py`  
+
+Input:
+- cartella dataset con struttura `data/train|val/healthy|unhealthy/*.wav`
+- pipeline definita in `configs/pipelines.json`
+
+Azioni:
+- applica la pipeline scelta a **tutti** i file audio (train e val)
+- produce un Mel-spectrogramma per ogni file
+- salva i risultati in formato PNG
+- scrive un file `stats.txt` con data/ora del run e conteggi per split/classe
+
+Output:
+- cartella `data_preprocessed/pipeline_<pipeline_name>/train|val/healthy|unhealthy/*.png`
+- file `data_preprocessed/pipeline_<pipeline_name>/stats.txt`
+
 ---
 
 ## Installazione (ambiente Python)

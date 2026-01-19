@@ -208,7 +208,7 @@ __marimo__/
 
 # custom directories
 data/
-
+data_preprocessed/
 
 
 
