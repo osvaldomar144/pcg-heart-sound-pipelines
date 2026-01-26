@@ -16,7 +16,7 @@
   "pipelines": {
     "bandpass_mel": {
       "steps": ["load","resample","to_mono","bandpass","normalize_rms","chunk_or_pad","mel","log"],
-      "bandpass": {"lowcut": 20, "highcut": 800, "order": 4}
+      "bandpass": {"lowcut": 20, "highcut": 400, "order": 4}
     },
     "fft_denoise_mel": {
       "steps": ["load","resample","to_mono","fft_denoise","normalize_rms","chunk_or_pad","mel","log"],

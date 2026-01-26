@@ -14,8 +14,12 @@ from torchvision.models import ResNet18_Weights
 def build_transforms(img_size: int, pretrained: bool) -> transforms.Compose:
     if pretrained:
         weights = ResNet18_Weights.DEFAULT
-        mean = weights.meta["mean"]
-        std = weights.meta["std"]
+        try:
+            mean = weights.meta["mean"]
+            std = weights.meta["std"]
+        except Exception:
+            mean = (0.485, 0.456, 0.406)
+            std = (0.229, 0.224, 0.225)
     else:
         mean = (0.5, 0.5, 0.5)
         std = (0.5, 0.5, 0.5)

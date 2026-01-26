@@ -1,0 +1,29 @@
+run_datetime: 2026-01-24T11:17:04
+data_dir: /Users/gianluca/dev/pcg-heart-sound-pipelines/data_preprocessed/pipeline_bandpass_mel
+pipeline: bandpass_mel
+device: cpu
+epochs: 10
+batch_size: 32
+lr: 0.001
+weight_decay: 0.0
+optimizer: adam
+momentum: 0.9
+img_size: 224
+pretrained: True
+num_workers: 2
+seed: 42
+train_samples: 3240
+val_samples: 301
+classes: ['healthy', 'unhealthy']
+class_counts: [2575, 665]
+imbalance_ratio: 3.872
+balancer_enabled: True
+best_epoch: 6
+best_val_acc: 0.727575
+best_val_loss: 0.682107
+last_train_loss: 0.155070
+last_train_acc: 0.894444
+last_val_loss: 2.058017
+last_val_acc: 0.554817
+checkpoint_best: runs/cnn/20260124_111704_pipeline_bandpass_mel/model_best.pt
+checkpoint_last: runs/cnn/20260124_111704_pipeline_bandpass_mel/model_last.pt
