@@ -60,6 +60,23 @@ def normalize_rms(y: np.ndarray, target_rms: float = 0.1, eps: float = 1e-8) -> 
     return (y / (rms + eps) * target_rms).astype(np.float32)
 
 
+def normalize_peak(y: np.ndarray, target_peak: float = 0.99, eps: float = 1e-8) -> np.ndarray:
+    """
+    Normalizzazione per ampiezza massima (peak).
+
+    - Calcola il valore assoluto massimo del segnale.
+    - Scala il segnale in modo che il picco diventi target_peak.
+
+    target_peak:
+    - 0.99 evita il clipping quando il segnale viene salvato in formati con range [-1, 1].
+    """
+    peak = float(np.max(np.abs(y))) if y.size else 0.0
+    if peak <= eps:
+        return y.astype(np.float32)
+    return (y / peak * target_peak).astype(np.float32)
+
+
+
 def chunk_or_pad(y: np.ndarray, sr: int, seconds: float) -> np.ndarray:
     """
     Forza tutti i segnali ad avere la stessa durata (fondamentale per input CNN fisso).
@@ -98,6 +115,25 @@ def chunk_or_pad(y: np.ndarray, sr: int, seconds: float) -> np.ndarray:
     return np.pad(y, (left, right), mode="constant").astype(np.float32)
 
 
+def trim(y: np.ndarray, sr: int, seconds: float) -> np.ndarray:
+    """
+    Taglia o padding del segnale usando sempre l'inizio.
+
+    - Se il segnale è più lungo: prende i primi campioni (start crop).
+    - Se il segnale è più corto: pad con zeri alla fine.
+    """
+    target_len = int(sr * seconds)
+
+    if len(y) == target_len:
+        return y
+
+    if len(y) > target_len:
+        return y[:target_len]
+
+    pad_total = target_len - len(y)
+    return np.pad(y, (0, pad_total), mode="constant").astype(np.float32)
+
+
 def butter_bandpass(y: np.ndarray, sr: int, lowcut: float, highcut: float, order: int = 4) -> np.ndarray:
     """
     Filtro passa-banda Butterworth applicato con filtfilt (zero-phase).
@@ -121,6 +157,29 @@ def butter_bandpass(y: np.ndarray, sr: int, lowcut: float, highcut: float, order
 
     b, a = sps.butter(order, [low, high], btype="band")
     return sps.filtfilt(b, a, y).astype(np.float32)
+
+
+def soft_clip(y: np.ndarray, drive: float = 1.5, target_peak: float = 0.99, eps: float = 1e-8) -> np.ndarray:
+    """
+    Soft clipping per ridurre i picchi locali (es. dopo filtfilt).
+
+    - Applica una non-linearità morbida (tanh) per comprimere i picchi.
+    - Poi riporta l'ampiezza massima a target_peak.
+
+    Parametri:
+    - drive: quanto spingere il segnale prima del clipping (più alto = più compressione).
+    - target_peak: picco massimo desiderato dopo il soft-clip.
+    """
+    if not y.size:
+        return y.astype(np.float32)
+
+    y_drive = y * float(drive)
+    y_soft = np.tanh(y_drive)
+
+    peak = float(np.max(np.abs(y_soft)))
+    if peak <= eps:
+        return y_soft.astype(np.float32)
+    return (y_soft / peak * target_peak).astype(np.float32)
 
 
 def fft_denoise_spectral_gate(

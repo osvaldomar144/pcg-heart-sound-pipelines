@@ -10,6 +10,9 @@ from .audio_ops import (
     load_audio,
     to_mono,
     normalize_rms,
+    normalize_peak,
+    soft_clip,
+    trim,
     chunk_or_pad,
     butter_bandpass,
     fft_denoise_spectral_gate,
@@ -152,6 +155,25 @@ def build_pipeline(cfg: Dict[str, Any], name: str) -> Callable[[str], np.ndarray
                 y = normalize_rms(y)
 
             # ------------------------
+            # STEP: normalize_peak
+            # ------------------------
+            elif step == "normalize_peak":
+                # Uniforma la scala/energia del segnale per ridurre variabilità di volume.
+                y = normalize_peak(y)
+
+            # ------------------------
+            # STEP: soft_clip
+            # ------------------------
+            elif step == "soft_clip":
+                # Riduce i picchi locali con una non-linearità morbida.
+                sc = pipe_cfg.get("soft_clip", {"drive": 1.5, "target_peak": 0.99})
+                y = soft_clip(
+                    y,
+                    drive=sc.get("drive", 1.5),
+                    target_peak=sc.get("target_peak", 0.99),
+                )
+
+            # ------------------------
             # STEP: chunk_or_pad
             # ------------------------
             elif step == "chunk_or_pad":
@@ -159,6 +181,15 @@ def build_pipeline(cfg: Dict[str, Any], name: str) -> Callable[[str], np.ndarray
                 # - crop centrale se troppo lungo
                 # - padding a zeri se troppo corto
                 y = chunk_or_pad(y, sr=sr, seconds=float(audio_cfg["chunk_seconds"]))
+
+            # ------------------------
+            # STEP: trim
+            # ------------------------
+            elif step == "trim":
+                # Forza durata costante usando l'inizio:
+                # - taglia dall'inizio se troppo lungo
+                # - padding a zeri in coda se troppo corto
+                y = trim(y, sr=sr, seconds=float(audio_cfg["chunk_seconds"]))
 
             # ------------------------
             # STEP: mel

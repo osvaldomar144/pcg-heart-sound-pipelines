@@ -6,6 +6,7 @@ import os
 
 import numpy as np
 import matplotlib.pyplot as plt
+import librosa
 
 # Utility per scoprire i file e separare train/val secondo la struttura cartelle
 from src.data import discover_dataset, split_items
@@ -13,7 +14,10 @@ from src.data import discover_dataset, split_items
 # Funzioni di preprocessing audio (quelle che usiamo nelle pipeline)
 from src.audio_ops import (
     load_audio,
+    to_mono,
     normalize_rms,
+    normalize_peak,
+    soft_clip,
     chunk_or_pad,
     butter_bandpass,
     fft_denoise_spectral_gate,
@@ -71,6 +75,82 @@ def save_fig(path: str):
     plt.tight_layout()
     plt.savefig(path, dpi=200)
     plt.close()
+
+
+def run_audio_steps(
+    path: str,
+    cfg: dict,
+    pname: str,
+) -> tuple[np.ndarray, int]:
+    """
+    Esegue gli step audio della pipeline (stessi operatori e stesso ordine).
+    Si ferma prima delle trasformate (mel/log) e ritorna (y, sr).
+    """
+    audio_cfg = cfg["audio"]
+    tf_cfg = cfg["tf"]
+    pipe_cfg = cfg["pipelines"][pname]
+    steps = pipe_cfg["steps"]
+
+    y = None
+    sr = None
+    for step in steps:
+        if step == "load":
+            y, sr = load_audio(path, sr=None, mono=audio_cfg.get("mono", True))
+        elif step == "resample":
+            target_sr = int(audio_cfg["target_sr"])
+            if sr != target_sr:
+                y = librosa.resample(y, orig_sr=sr, target_sr=target_sr).astype(np.float32)
+                sr = target_sr
+        elif step == "to_mono":
+            y = to_mono(y)
+        elif step == "bandpass":
+            bp = pipe_cfg.get("bandpass", {"lowcut": 20, "highcut": 800, "order": 4})
+            y = butter_bandpass(
+                y,
+                sr=sr,
+                lowcut=bp["lowcut"],
+                highcut=bp["highcut"],
+                order=bp.get("order", 4),
+            )
+        elif step == "fft_denoise":
+            dd = pipe_cfg.get("fft_denoise", {"prop_decrease": 0.8})
+            y = fft_denoise_spectral_gate(
+                y,
+                sr=sr,
+                n_fft=tf_cfg["n_fft"],
+                hop_length=tf_cfg["hop_length"],
+                prop_decrease=dd.get("prop_decrease", 0.8),
+            )
+        elif step == "wavelet_denoise":
+            w = pipe_cfg.get("wavelet", {"wavelet": "db6", "level": 4, "mode": "soft"})
+            y = wavelet_denoise(
+                y,
+                wavelet=w["wavelet"],
+                level=w["level"],
+                mode=w["mode"],
+            )
+        elif step == "normalize_rms":
+            y = normalize_rms(y)
+        elif step == "normalize_peak":
+            y = normalize_peak(y)
+        elif step == "soft_clip":
+            sc = pipe_cfg.get("soft_clip", {"drive": 1.5, "target_peak": 0.99})
+            y = soft_clip(
+                y,
+                drive=sc.get("drive", 1.5),
+                target_peak=sc.get("target_peak", 0.99),
+            )
+        elif step == "chunk_or_pad":
+            y = chunk_or_pad(y, sr=sr, seconds=float(audio_cfg["chunk_seconds"]))
+        elif step in ("mel", "log"):
+            # Le trasformate non servono per le metriche audio
+            continue
+        else:
+            raise ValueError(f"Step sconosciuto: {step}")
+
+    if y is None or sr is None:
+        raise RuntimeError("Pipeline audio incompleta: manca lo step 'load'.")
+    return y, sr
 
 
 # -----------------------------
@@ -145,48 +225,24 @@ def main():
             y_raw, sr_raw = load_audio(it.path, sr=None, mono=True)
 
             # -------------------------
-            # 1) REPLICHIAMO PREPROCESSING BASE per controlli espliciti
+            # 1) PREPROCESSING AUDIO: stessi step e operatori delle pipeline
             # -------------------------
-            # Resampling esplicito verso sr_tgt (coerenza tra file)
-            if sr_raw != sr_tgt:
-                import librosa
-                y = librosa.resample(y_raw, orig_sr=sr_raw, target_sr=sr_tgt).astype(np.float32)
-            else:
-                y = y_raw.astype(np.float32)
-
             # Salviamo un "prima" per visualizzare l'effetto del filtro/denoise
-            y_before = y.copy()
+            # (solo resample, coerente con l'opzionale step "resample")
+            if sr_raw != sr_tgt:
+                y_before = librosa.resample(y_raw, orig_sr=sr_raw, target_sr=sr_tgt).astype(np.float32)
+            else:
+                y_before = y_raw.astype(np.float32)
 
-            # Applichiamo un filtro/denoise coerente con il nome pipeline.
-            # Nota: questa è una "scorciatoia" per mostrare a video l'effetto del core step.
-            # La pipeline completa vera e propria (spec_fn) viene comunque usata dopo.
-            if "bandpass" in pname:
-                bp = cfg["pipelines"][pname].get("bandpass", {"lowcut": 20, "highcut": 800, "order": 4})
-                y = butter_bandpass(y, sr_tgt, bp["lowcut"], bp["highcut"], bp.get("order", 4))
-
-            if "fft_denoise" in pname:
-                dd = cfg["pipelines"][pname].get("fft_denoise", {"prop_decrease": 0.8})
-                y = fft_denoise_spectral_gate(
-                    y,
-                    sr_tgt,
-                    n_fft=cfg["tf"]["n_fft"],
-                    hop_length=cfg["tf"]["hop_length"],
-                    prop_decrease=dd.get("prop_decrease", 0.8),
-                )
-
-            if "wavelet_denoise" in pname:
-                w = cfg["pipelines"][pname].get("wavelet", {"wavelet": "db6", "level": 4, "mode": "soft"})
-                y = wavelet_denoise(y, wavelet=w["wavelet"], level=w["level"], mode=w["mode"])
-
-            # Normalizzazione e durata fissa: queste due operazioni sono sempre presenti
-            y = normalize_rms(y)
-            y = chunk_or_pad(y, sr=sr_tgt, seconds=chunk_seconds)
+            # Eseguiamo tutti gli step audio definiti dalla pipeline
+            y, sr = run_audio_steps(it.path, cfg, pname)
 
             # -------------------------
             # 2) CHECK DI CONSISTENZA (sanity checks)
             # -------------------------
             # Controllo lunghezza
-            assert len(y) == chunk_len, f"Chunk length mismatch: {len(y)} != {chunk_len}"
+            expected_len = int(sr * chunk_seconds)
+            assert len(y) == expected_len, f"Chunk length mismatch: {len(y)} != {expected_len}"
 
             # Controllo numerico (no NaN/Inf)
             assert np.isfinite(y).all(), "Found NaN/Inf in audio after preprocessing"
@@ -230,7 +286,7 @@ def main():
             ax1.set_xlabel("samples")
 
             ax2 = fig.add_subplot(2, 3, 2)
-            ax2.plot(y_before[: min(len(y_before), chunk_len)])
+            ax2.plot(y_before[: min(len(y_before), len(y))])
             ax2.set_title("After resample (pre filter/denoise)")
             ax2.set_xlabel("samples")
 

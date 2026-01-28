@@ -23,7 +23,7 @@ def main() -> None:
     ap.add_argument(
         "--out_dir",
         default="data_preprocessed",
-        help="Cartella base per output (crea pipeline_{pipeline}/train|val/...)",
+        help="Cartella base per output (crea pipeline_{pipeline}_{datehour}/train|val/...)",
     )
     ap.add_argument(
         "--overwrite",
@@ -40,8 +40,9 @@ def main() -> None:
     items = discover_dataset(args.data_dir)
     spec_fn = build_pipeline(cfg, args.pipeline)
 
-    # Cartella di output: data_preprocessed/pipeline_{pipeline}/train|val/...
-    out_root = Path(args.out_dir) / f"pipeline_{args.pipeline}"
+    # Cartella di output: data_preprocessed/pipeline_{pipeline}_{datehour}/train|val/...
+    run_stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    out_root = Path(args.out_dir) / f"pipeline_{args.pipeline}_{run_stamp}"
 
     total = 0
     skipped = 0
@@ -77,6 +78,7 @@ def main() -> None:
     with open(stats_path, "w", encoding="utf-8") as f:
         f.write(f"run_datetime: {datetime.now().isoformat(timespec='seconds')}\n")
         f.write(f"pipeline: {args.pipeline}\n")
+        f.write(f"run_stamp: {run_stamp}\n")
         f.write(f"processed_total: {total}\n")
         if skipped:
             f.write(f"skipped_existing: {skipped}\n")
