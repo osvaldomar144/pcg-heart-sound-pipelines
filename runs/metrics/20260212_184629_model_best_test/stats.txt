@@ -1,0 +1,39 @@
+run_datetime: 2026-02-12T18:46:29
+model_path: /Users/gianluca/dev/pcg-heart-sound-pipelines/runs/cnn/20260212_181344_pipeline_bandpass_20260212_1810/model_best.pt
+test_dir: /Users/gianluca/dev/pcg-heart-sound-pipelines/data_preprocessed/pipeline_bandpass_20260212_1810/test
+out_dir: /Users/gianluca/dev/pcg-heart-sound-pipelines/runs/metrics/20260212_184629_model_best_test
+device: cpu
+img_size: 224
+pretrained_norm: False
+batch_size: 16
+num_workers: 4
+num_samples: 324
+classes: ['healthy', 'unhealthy']
+class_counts_true: [258, 66]
+
+accuracy: 0.753086
+precision_macro: 0.606948
+recall_macro: 0.596899
+f1_macro: 0.601083
+precision_weighted: 0.741845
+recall_weighted: 0.753086
+f1_weighted: 0.747006
+
+per_class_metrics:
+  healthy: precision=0.834586 recall=0.860465 f1=0.847328 support=258
+  unhealthy: precision=0.379310 recall=0.333333 f1=0.354839 support=66
+
+confusion_matrix:
+[[222  36]
+ [ 44  22]]
+
+classification_report:
+              precision    recall  f1-score   support
+
+     healthy       0.83      0.86      0.85       258
+   unhealthy       0.38      0.33      0.35        66
+
+    accuracy                           0.75       324
+   macro avg       0.61      0.60      0.60       324
+weighted avg       0.74      0.75      0.75       324
+

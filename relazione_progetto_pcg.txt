@@ -1,0 +1,128 @@
+Titolo: Classificazione binaria di segnali PCG (cuore sano vs non sano) con focus su preprocessing
+Autore: Relazione tecnica del progetto Python pcg-heart-sound-pipelines
+Data: 12 febbraio 2026
+
+ABSTRACT
+Questo progetto ha affrontato la classificazione binaria di fonocardiogrammi (PCG) in classi healthy/unhealthy, usando dati derivati dalla challenge PhysioNet/CinC 2016 (distribuzione Kaggle: Heart Sound Database). L'obiettivo principale e' stato valutare in modo sistematico l'impatto del preprocessing sul risultato finale, prima dell'addestramento di una CNN "classica". Nel repository sono state implementate pipeline modulari con diverse combinazioni di band-pass, denoising FFT, denoising wavelet e normalizzazione (peak/RMS), seguite da trasformata Mel + log. I risultati interni mostrano che il preprocessing standard e una sola CNN non sono sufficienti a raggiungere prestazioni paragonabili allo stato dell'arte: il best validation accuracy ottenuto e' 72.76% (ResNet18), mentre lavori di riferimento su PhysioNet 2016 riportano score intorno a 0.85-0.86 su metriche challenge e approcci piu' avanzati. Il contributo principale del progetto e' quindi metodologico: confronto tra pipeline di preprocessing, audit tecnico e identificazione dei limiti dell'approccio baseline.
+
+INTRODUZIONE
+La classificazione automatica dei suoni cardiaci e' un problema rilevante per screening precoce e triage, soprattutto in contesti con risorse limitate. I segnali PCG sono pero' difficili da modellare per almeno tre motivi pratici:
+1. Rumore e artefatti (ambientali, stethoscope handling, respirazione).
+2. Variabilita' fisiologica intra/inter-paziente.
+3. Sbilanciamento delle classi.
+
+Nel progetto l'obiettivo era costruire una pipeline end-to-end composta da:
+1. Preprocessing audio configurabile e confrontabile.
+2. Conversione in rappresentazione tempo-frequenza (Mel spectrogram).
+3. Classificazione con CNN.
+
+La priorita' e' stata data al preprocessing, perche' nella pratica i modelli PCG sono molto sensibili a come il segnale viene filtrato, normalizzato e segmentato temporalmente.
+
+STATO DELL'ARTE
+La challenge PhysioNet/CinC 2016 e' ancora il benchmark storico piu' usato per classificazione normal/abnormal su PCG. Dal materiale ufficiale emerge che il task e' rumoroso e con acquisizioni eterogenee, condizione che penalizza pipeline semplici.
+
+Evidenze principali da fonti primarie:
+1. Potes et al. (CinC 2016) combinano feature hand-crafted e CNN su segmenti, riportando sul test challenge sensitivity 0.9424, specificity 0.7782 e score complessivo 0.8603.
+2. Zabihi et al. (CinC 2016) mostrano che anche senza segmentazione esplicita si puo' arrivare a score 0.86 con rappresentazioni tempo-frequenza + transfer learning.
+3. Rubin et al. (CinC 2016) con approccio deep learning (CNN + logistic regression su MFCC) riportano score 0.8524.
+4. Nilanon et al. (CinC 2016) usano segmentazione, Mel-spectrum image e 2D-CNN, riportando score 0.8609.
+5. Springer et al. (2016, IEEE TBME) consolidano la segmentazione HSMM (S1/sistole/S2/diastole), base tecnica adottata in molti sistemi moderni.
+6. Lavori recenti (es. 2025, Biomedical Signal Processing and Control) mostrano architetture ibride con attenzione e componenti ricorrenti/sequence modeling (es. BiLSTM), con F1 elevati su PhysioNet 2016; tuttavia i confronti diretti richiedono attenzione perche' split, protocolli e metriche non sono sempre identici.
+
+Sintesi critica per questo progetto:
+- Lo stato dell'arte non si basa solo su "CNN su Mel".
+- I miglioramenti arrivano da combinazioni di preprocessing avanzato, segmentazione cardiaca e modelli sequenziali/ibridi (CNN + RNN/LSTM/attention).
+
+METODI E TECNOLOGIE
+Dataset e struttura dati
+1. Dataset usato: Heart Sound Database (Kaggle), derivato da PhysioNet 2016.
+2. Campioni preprocessati nel progetto: 3541 totali.
+3. Train: 3240 file (2575 healthy, 665 unhealthy).
+4. Validation: 301 file (150 healthy, 151 unhealthy).
+5. Sbilanciamento train: rapporto circa 3.872 (healthy/unhealthy).
+
+Stack tecnologico
+1. Python, NumPy, SciPy, Librosa, PyWavelets, Matplotlib.
+2. PyTorch + Torchvision per training CNN.
+3. Configurazione pipeline tramite JSON (`configs/pipelines.json`).
+
+Pipeline di preprocessing implementate
+Pipeline principali emerse dai run di sanity/check:
+1. none: load -> (trim opzionale) -> mel -> log.
+2. bandpass: load -> trim -> bandpass -> mel -> log.
+3. bandpass_norm_peak: load -> trim -> bandpass -> normalize_peak -> mel -> log.
+4. bandpass_norm_rms: load -> trim -> bandpass -> normalize_rms -> mel -> log.
+5. denoise_bandpass_norm_rms: load -> trim -> fft_denoise -> bandpass -> normalize_rms -> mel -> log.
+6. wavelet_bandpass_norm_rms: load -> trim -> wavelet_denoise -> bandpass -> normalize_rms -> mel -> log.
+
+Nota: nei run storici/audit compaiono anche nomi legacy (es. bandpass_mel, fft_denoise_mel, wavelet_denoise_mel), riconducibili alle stesse famiglie di pipeline.
+
+Variazioni di iperparametri di preprocessing testate nei run:
+1. n_fft: 256 e 512.
+2. fmax Mel: 300, 600 e 800 Hz.
+3. highcut bandpass: 300 e 600 Hz.
+4. prop_decrease (spectral gating): 0.8, 0.95, 1.0.
+
+Audit preprocessing
+Lo script `scripts/audit_preprocessing.py` verifica:
+1. Lunghezza costante (chunk).
+2. Assenza NaN/Inf.
+3. RMS/peak prima-dopo preprocess.
+4. Coerenza shape spettrogramma.
+5. Diagnostica visiva waveform/FFT/Mel.
+
+Nel summary storico (`runs/audit/summary.json`) si osserva, ad esempio:
+1. Shape tipica Mel: 64 x 63.
+2. `fft_denoise_mel` e `wavelet_denoise_mel` con picchi massimi piu' controllati.
+3. Variante `bandpass_mel_lowring` con `peak_after_max = 1.4133`, segnale di overshoot/ringing residuo.
+
+Classificatore
+1. Modello: ResNet18 (con e senza pesi pretrained ImageNet).
+2. Input: PNG grayscale replicato a 3 canali, resize 224x224.
+3. Loss: CrossEntropy con class weights quando necessario.
+4. Bilanciamento: WeightedRandomSampler attivo con imbalance ratio >= 1.5.
+5. Ottimizzazione: Adam (default), 10 epoche.
+
+RISULTATI
+Risultati di training disponibili (`runs/cnn/.../stats.txt`):
+1. Run 2026-01-24 11:17 (pipeline bandpass_mel, pretrained=True):
+   - best_epoch: 6
+   - best_val_acc: 0.727575
+   - best_val_loss: 0.682107
+2. Run 2026-01-28 15:04 (pipeline bandpass_mel, pretrained=False):
+   - best_epoch: 10
+   - best_val_acc: 0.717608
+   - best_val_loss: 0.804331
+
+Interpretazione
+1. Il pretrained migliora leggermente il picco di accuracy (+~1 punto percentuale assoluto).
+2. Le prestazioni restano comunque lontane dai risultati tipici dei sistemi migliori su PhysioNet 2016.
+3. Il limite principale non sembra solo il backbone CNN, ma l'insieme preprocessing + rappresentazione + modeling temporale.
+4. Mancano ancora metriche robuste per dataset sbilanciati (F1 macro, recall classe unhealthy, AUC) nei run salvati; quindi la sola accuracy non e' sufficiente per una valutazione clinicamente orientata.
+
+CONCLUSIONI
+Il progetto ha raggiunto il suo obiettivo tecnico principale: costruire e validare una piattaforma modulare per confrontare pipeline di preprocessing PCG prima della classificazione con CNN.
+
+Punti chiave emersi:
+1. Il preprocessing e' determinante e va trattato come parte centrale del modello, non come passaggio accessorio.
+2. Approcci baseline (preprocessing standard + CNN classica) danno risultati utili ma non risolutivi.
+3. Lo stato dell'arte suggerisce di integrare almeno:
+   - segmentazione cardiaca robusta (S1/S2/fasi),
+   - modeling sequenziale (LSTM/BiLSTM/CRNN) o attenzione,
+   - metriche e protocolli di valutazione piu' aderenti al contesto clinico.
+
+Direzione futura consigliata per questo repository:
+1. Confronto sistematico multi-pipeline con stesso seed/protocollo.
+2. Integrazione della segmentazione HMM gia' presente in `src/segmentation.py` dentro il flusso di training.
+3. Aggiunta di modelli ibridi CNN+LSTM/attention e report standardizzati (accuracy, F1, recall unhealthy, AUC).
+
+RIFERIMENTI WEB (fonti primarie)
+1. PhysioNet Challenge 2016 (overview ufficiale): https://physionet.org/content/challenge-2016/
+2. Liu et al., The PhysioNet/Computing in Cardiology Challenge 2016 (CinC paper): https://www.cinc.org/archives/2016/pdf/001.pdf
+3. Potes et al., Ensemble of feature-based and deep learning-based classifiers (CinC 2016): https://www.cinc.org/archives/2016/pdf/658.pdf
+4. Zabihi et al., Heart Sound Classification from Unsegmented Phonocardiograms Using Deep Learning (CinC 2016): https://www.cinc.org/archives/2016/pdf/236-175.pdf
+5. Rubin et al., Recognizing abnormal heart sounds using deep learning (CinC 2016): https://www.cinc.org/archives/2016/pdf/411-124.pdf
+6. Nilanon et al., Normal/abnormal heart sound recordings classification using CNN (CinC 2016): https://www.cinc.org/archives/2016/pdf/609-249.pdf
+7. Springer et al., Logistic Regression-HSMM-Based Heart Sound Segmentation (IEEE TBME 2016): https://pubmed.ncbi.nlm.nih.gov/26340769/
+8. Thompson et al., Recent advances in heart sound analysis for diagnostics and evaluation (Applied Sciences 2021): https://www.mdpi.com/2076-3417/11/7/3277
+9. Ma et al., Multi-branch CNN + attention + BiLSTM su PhysioNet 2016 (Biomed Signal Process Control, 2025): https://pubmed.ncbi.nlm.nih.gov/39863020/

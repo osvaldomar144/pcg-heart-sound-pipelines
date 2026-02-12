@@ -8,22 +8,42 @@ from datetime import datetime
 
 import matplotlib.pyplot as plt
 
-from src.data import discover_dataset
+from src.data import FileItem, LABELS, discover_dataset
 from src.pipelines import build_pipeline
 
 
 LABEL_NAMES = {0: "healthy", 1: "unhealthy"}
+DATASET_SPLITS = ["train", "val", "test"]
+
+
+def discover_optional_test_split(data_dir: str) -> list[FileItem]:
+    test_items: list[FileItem] = []
+    test_root = Path(data_dir) / "test"
+    if not test_root.exists():
+        return test_items
+
+    for cls_name, cls_label in LABELS.items():
+        class_dir = test_root / cls_name
+        if not class_dir.exists():
+            continue
+        for p in class_dir.glob("*.wav"):
+            test_items.append(FileItem(path=str(p), label=cls_label, split="test"))
+    return test_items
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data_dir", required=True, help="Cartella dataset (contiene train/ e val/)")
+    ap.add_argument(
+        "--data_dir",
+        required=True,
+        help="Cartella dataset (contiene train/ e val/, opzionalmente test/)",
+    )
     ap.add_argument("--cfg", default="configs/pipelines.json", help="Config con pipeline e parametri")
     ap.add_argument("--pipeline", default="bandpass_mel", help="Nome pipeline da applicare")
     ap.add_argument(
         "--out_dir",
         default="data_preprocessed",
-        help="Cartella base per output (crea pipeline_{pipeline}_{datehour}/train|val/...)",
+        help="Cartella base per output (crea pipeline_{pipeline}_{datehour}/train|val|test/...)",
     )
     ap.add_argument(
         "--overwrite",
@@ -36,11 +56,12 @@ def main() -> None:
     with open(args.cfg, "r", encoding="utf-8") as f:
         cfg = json.load(f)
 
-    # Scansiona il dataset e costruisce la pipeline scelta.
+    # Scansiona train/val (obbligatori) e test (opzionale), poi costruisce la pipeline scelta.
     items = discover_dataset(args.data_dir)
+    items.extend(discover_optional_test_split(args.data_dir))
     spec_fn = build_pipeline(cfg, args.pipeline)
 
-    # Cartella di output: data_preprocessed/pipeline_{pipeline}_{datehour}/train|val/...
+    # Cartella di output: data_preprocessed/pipeline_{pipeline}_{datehour}/train|val|test/...
     run_stamp = datetime.now().strftime("%Y%m%d_%H%M")
     out_root = Path(args.out_dir) / f"pipeline_{args.pipeline}_{run_stamp}"
 
@@ -82,7 +103,7 @@ def main() -> None:
         f.write(f"processed_total: {total}\n")
         if skipped:
             f.write(f"skipped_existing: {skipped}\n")
-        for split in ["train", "val"]:
+        for split in DATASET_SPLITS:
             for cls_name in ["healthy", "unhealthy"]:
                 key = (split, cls_name)
                 f.write(f"{split}/{cls_name}: {counts.get(key, 0)}\n")

@@ -15,12 +15,15 @@ from .audio_ops import (
     trim,
     chunk_or_pad,
     butter_bandpass,
+    stft,
     fft_denoise_spectral_gate,
     wavelet_denoise,
+    wavelet_transform,
 )
 
 # Importiamo gli "operatori" di trasformata (dominio tempo-frequenza)
 from .tf_ops import mel_spectrogram, log1p
+from .segmentation import segment_hmm
 
 
 def build_pipeline(cfg: Dict[str, Any], name: str) -> Callable[[str], np.ndarray]:
@@ -72,6 +75,7 @@ def build_pipeline(cfg: Dict[str, Any], name: str) -> Callable[[str], np.ndarray
         y = None  # segnale audio (np.ndarray 1D)
         sr = None  # sample rate attuale
         S = None  # spettrogramma 2D (n_mels, T)
+        _segments = None  # placeholder per segmentazione (non usato nel return)
 
         # Eseguiamo gli step in ordine definito dal JSON
         for step in steps:
@@ -210,6 +214,48 @@ def build_pipeline(cfg: Dict[str, Any], name: str) -> Callable[[str], np.ndarray
                 )
 
             # ------------------------
+            # STEP: stft
+            # ------------------------
+            elif step == "stft":
+                # Trasformata STFT (magnitudine):
+                # output S: matrice 2D (n_freq, T)
+                S = stft(
+                    y=y,
+                    n_fft=tf_cfg["n_fft"],
+                    hop_length=tf_cfg["hop_length"],
+                    win_length=tf_cfg["win_length"],
+                    window=tf_cfg["window"],
+                )
+
+            # ------------------------
+            # STEP: wavelet_transform
+            # ------------------------
+            elif step == "wavelet_transform":
+                # Trasformata wavelet continua (CWT) -> matrice (n_scales, T)
+                w = pipe_cfg.get(
+                    "wavelet_transform",
+                    {
+                        "wavelet": "morl",
+                        "scale_min": 1.0,
+                        "scale_max": 128.0,
+                        "num_scales": 64,
+                        "scale_spacing": "log",
+                        "output": "magnitude",
+                    },
+                )
+                S, _ = wavelet_transform(
+                    y=y,
+                    wavelet=w.get("wavelet", "morl"),
+                    scales=None,
+                    sr=sr,
+                    scale_min=float(w.get("scale_min", 1.0)),
+                    scale_max=float(w.get("scale_max", 128.0)),
+                    num_scales=int(w.get("num_scales", 64)),
+                    scale_spacing=w.get("scale_spacing", "log"),
+                    output=w.get("output", "magnitude"),
+                )
+
+            # ------------------------
             # STEP: log
             # ------------------------
             elif step == "log":
@@ -217,6 +263,38 @@ def build_pipeline(cfg: Dict[str, Any], name: str) -> Callable[[str], np.ndarray
                 # Serve a ridurre differenze di scala (valori molto grandi vs piccoli),
                 # rendendo più stabile la rappresentazione per la CNN.
                 S = log1p(S)
+
+            # ------------------------
+            # STEP: segment_hmm
+            # ------------------------
+            elif step == "segment_hmm":
+                # Segmentazione stile Springer con HMM.
+                # Nota: non altera S; mantiene solo la compatibilità con pipeline JSON.
+                seg = pipe_cfg.get(
+                    "segment_hmm",
+                    {
+                        "env_lp_hz": 8.0,
+                        "win_ms": 50.0,
+                        "hop_ms": 10.0,
+                        "min_bpm": 40.0,
+                        "max_bpm": 180.0,
+                        "peak_prom": 0.15,
+                        "s1_ms": 90.0,
+                        "s2_ms": 70.0,
+                    },
+                )
+                _segments, _ = segment_hmm(
+                    y=y,
+                    sr=sr,
+                    env_lp_hz=float(seg.get("env_lp_hz", 8.0)),
+                    win_ms=float(seg.get("win_ms", 50.0)),
+                    hop_ms=float(seg.get("hop_ms", 10.0)),
+                    min_bpm=float(seg.get("min_bpm", 40.0)),
+                    max_bpm=float(seg.get("max_bpm", 180.0)),
+                    peak_prom=float(seg.get("peak_prom", 0.15)),
+                    s1_ms=float(seg.get("s1_ms", 90.0)),
+                    s2_ms=float(seg.get("s2_ms", 70.0)),
+                )
 
             # ------------------------
             # STEP non riconosciuto

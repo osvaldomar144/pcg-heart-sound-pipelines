@@ -36,7 +36,7 @@ def to_mono(y: np.ndarray) -> np.ndarray:
     return y.astype(np.float32)
 
 
-def normalize_rms(y: np.ndarray, target_rms: float = 0.1, eps: float = 1e-8) -> np.ndarray:
+def normalize_rms(y: np.ndarray, target_rms: float = 0.05, eps: float = 1e-8) -> np.ndarray:
     """
     Normalizzazione del volume basata su RMS (energia media).
 
@@ -182,6 +182,43 @@ def soft_clip(y: np.ndarray, drive: float = 1.5, target_peak: float = 0.99, eps:
     return (y_soft / peak * target_peak).astype(np.float32)
 
 
+def stft(
+    y: np.ndarray,
+    n_fft: int = 512,
+    hop_length: int | None = None,
+    win_length: int | None = None,
+    window: str = "hann",
+    center: bool = True,
+) -> np.ndarray:
+    """
+    Calcola la STFT (Short-Time Fourier Transform) del segnale in ingresso.
+
+    Parametri:
+    - y: segnale 1D
+    - n_fft: dimensione FFT
+    - hop_length: passo tra finestre (default: n_fft // 4)
+    - win_length: lunghezza finestra (default: n_fft)
+    - window: tipo di finestra per librosa
+    - center: se True, centra i frame (padding riflesso)
+
+    Ritorna:
+    - matrice reale (freq x frame) con la magnitudine della STFT
+    """
+    if hop_length is None:
+        hop_length = n_fft // 4
+    if win_length is None:
+        win_length = n_fft
+    stft_complex = librosa.stft(
+        y,
+        n_fft=n_fft,
+        hop_length=hop_length,
+        win_length=win_length,
+        window=window,
+        center=center,
+    )
+    return np.abs(stft_complex).astype(np.float32)
+
+
 def fft_denoise_spectral_gate(
     y: np.ndarray,
     sr: int,
@@ -277,3 +314,49 @@ def wavelet_denoise(y: np.ndarray, wavelet: str = "db6", level: int = 4, mode: s
     # Ricostruzione
     y_rec = pywt.waverec(coeffs_t, wavelet)[: len(y)]
     return y_rec.astype(np.float32)
+
+
+def wavelet_transform(
+    y: np.ndarray,
+    wavelet: str = "morl",
+    scales: np.ndarray | None = None,
+    sr: int | None = None,
+    scale_min: float = 1.0,
+    scale_max: float | None = 128.0,
+    num_scales: int = 64,
+    scale_spacing: str = "log",
+    output: str = "magnitude",
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """
+    Trasformata wavelet continua (CWT) del segnale in ingresso.
+
+    Parametri:
+    - y: segnale 1D
+    - wavelet: nome wavelet per pywt (es. "morl", "mexh", "cmor")
+    - scales: array di scale; se None viene generato automaticamente
+    - sr: sample rate; se fornito, ritorna anche le frequenze corrispondenti alle scale
+    - scale_min/scale_max/num_scales/scale_spacing: usati per generare le scale
+      * scale_spacing: "log" o "linear"
+    - output: "magnitude" (default) o "complex"
+
+    Ritorna:
+    - coeffs: matrice (n_scales x n_samples) della CWT
+    - freqs: array di frequenze (Hz) se sr è fornito, altrimenti None
+    """
+    if scales is None:
+        max_scale = float(scale_max) if scale_max is not None else 128.0
+        if scale_spacing == "linear":
+            scales = np.linspace(scale_min, max_scale, num_scales, dtype=np.float32)
+        else:
+            scales = np.logspace(np.log10(scale_min), np.log10(max_scale), num_scales).astype(np.float32)
+
+    coeffs, _ = pywt.cwt(y, scales, wavelet)
+
+    if output == "magnitude":
+        coeffs = np.abs(coeffs)
+
+    freqs = None
+    if sr is not None:
+        freqs = pywt.scale2frequency(wavelet, scales) * float(sr)
+
+    return coeffs.astype(np.float32), (None if freqs is None else freqs.astype(np.float32))

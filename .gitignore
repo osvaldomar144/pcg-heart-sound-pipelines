@@ -209,9 +209,7 @@ __marimo__/
 # custom directories
 data/
 data_preprocessed/
-runs/
-
-
+runs/cnn_checkpoint/
 
 ### Linux ###
 *~

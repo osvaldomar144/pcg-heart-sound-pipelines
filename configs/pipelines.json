@@ -1,7 +1,7 @@
 {
   "audio": {
     "target_sr": 2000,
-    "chunk_seconds": 8.0,
+    "chunk_seconds": 8.13,
     "mono": true
   },
   "tf": {
@@ -9,30 +9,22 @@
     "hop_length": 128,
     "win_length": 512,
     "window": "hann",
-    "n_mels": 64,
+    "n_mels": 128,
     "fmin": 20,
     "fmax": 300
   },
-  "pipelines": {
-    "bandpass_mel": {
-      "steps": ["load", "to_mono", "bandpass", "normalize_peak","trim","mel", "log"],
+  "pipelines": {  
+
+    "trim": {
+      "steps": ["load","trim","mel","log"]
+    },
+    "bandpass": {
+      "steps": ["load", "trim", "bandpass","mel","log"],
       "bandpass": {"lowcut": 20, "highcut": 300, "order": 4}
     },
-    "fft_denoise_mel": {
-      "steps": ["load", "resample", "to_mono", "fft_denoise", "normalize_rms", "chunk_or_pad", "mel", "log"],
-      "fft_denoise": {"prop_decrease": 0.8}
-    },
-    "wavelet_denoise_mel": {
-      "steps": ["load", "resample", "to_mono", "wavelet_denoise", "normalize_rms", "chunk_or_pad", "mel", "log"],
-      "wavelet": {"wavelet": "db6", "level": 4, "mode": "soft"}
-    },
-    "bandpass_mel_lowring": {
-      "steps": ["load", "resample", "to_mono", "bandpass", "normalize_rms", "chunk_or_pad", "mel", "log"],
-      "bandpass": {"lowcut": 20, "highcut": 200, "order": 2}
-    },
-    "fft_denoise_mel_aggressive": {
-      "steps": ["load", "resample", "to_mono", "fft_denoise", "normalize_peak", "chunk_or_pad", "mel", "log"],
-      "fft_denoise": {"prop_decrease": 0.95}
+    "bandpass_norm_rms": {
+      "steps": ["load", "trim", "bandpass", "normalize_rms","mel", "log"],
+      "bandpass": {"lowcut": 20, "highcut": 300, "order": 4}
     }
   }
 }
