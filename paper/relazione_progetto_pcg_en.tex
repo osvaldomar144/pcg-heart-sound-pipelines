@@ -1,0 +1,285 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{lmodern}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{setspace}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{graphicx}
+
+\setstretch{1.1}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    urlcolor=blue
+}
+
+\title{Binary Classification of PCG Signals with a Focus on Preprocessing}
+\author{
+    \textbf{Artificial Intelligence from Engineering to Arts - a.y. 2025/2026}
+    \\
+    Gianluca Farinaccio - 548013 \\
+    Alexis Osvaldo Hidalgo Martinez - 549484 \\
+    \\
+    \url{https://github.com/osvaldomar144/pcg-heart-sound-pipelines.git}
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This project addresses binary classification of phonocardiograms (PCG) into
+healthy/unhealthy classes, using data derived from the PhysioNet/CinC 2016 challenge.
+The main objective is to systematically evaluate the impact of preprocessing before
+training a CNN. Modular pipelines based on trim, band-pass filtering, and RMS
+normalization were compared, followed by Mel transform and logarithmic compression.
+The results show that preprocessing has a substantial impact on the trade-off between
+overall accuracy and the ability to detect the minority unhealthy class. The main
+contribution of this work is therefore methodological: a reproducible comparison between
+pipelines and an analysis of the limitations of a baseline CNN on an imbalanced dataset.
+\end{abstract}
+
+\section{Introduction}
+Automatic classification of heart sounds is a relevant problem for early screening and
+triage, especially in low-resource settings. However, PCG signals are difficult to model
+because they are often affected by environmental noise, acquisition artifacts, and
+intra/inter-patient physiological variability. In addition, class imbalance can shift model
+behavior toward the majority class.
+
+In this project, an end-to-end pipeline was built, including configurable audio
+preprocessing, conversion into a time-frequency representation (Mel spectrogram), and CNN
+classification. Priority was given to preprocessing because, in practice, PCG models are
+highly sensitive to how the signal is filtered, normalized, and temporally standardized.
+
+\section{State of the art}
+The PhysioNet/CinC 2016 challenge remains the historical benchmark most commonly used for
+normal/abnormal PCG classification. In general, the literature reports significantly
+better results than those obtained in this baseline project, but these performances almost
+always rely on more complex pipelines.
+
+State-of-the-art solutions are not based on a simple CNN applied to Mel spectrograms: they
+typically integrate advanced preprocessing, explicit heart-cycle segmentation, and more
+sophisticated noise-reduction strategies. In addition, beyond standard CNNs, sequential and
+hybrid models are often employed, such as LSTM/BiLSTM architectures or combinations of
+multiple architectural blocks.
+
+In summary, the comparison with the state of the art suggests that this work is a solid
+methodological starting point, but bridging the performance gap requires more advanced
+preprocessing and modeling.
+
+\section{Methods and technologies}
+\subsection{Dataset}
+The dataset was initially available as a single training block. To build a complete
+experimental protocol, this set was split into train, validation, and test partitions using
+a stratified 80\%-15\%-5\% split, keeping the healthy/unhealthy distribution as consistent as
+possible across the three subsets.
+
+The raw data consists of \texttt{.wav} audio files sampled at 2000 Hz, with variable duration
+across recordings. The dataset is also heterogeneous with respect to acquisition context:
+auscultation sites may differ from file to file, but this information is not provided in a
+structured way in the metadata used in this project. The \texttt{unhealthy} class is also
+aggregated: it indicates the presence of an anomaly, but does not systematically specify
+the underlying cardiac pathology.
+
+From a statistical perspective, the problem remains imbalanced. The Imbalance Ratio, defined
+as \(N(\text{healthy}) / N(\text{unhealthy})\), is approximately 3.87: in practice, the
+healthy class is almost four times more represented than unhealthy. This means that a naive
+classifier always predicting healthy can still achieve apparently high accuracy, while being
+clinically uninformative.
+
+During training, this imbalance tends to favor the majority class during optimization, with
+the risk of lower recall on the minority class and more false negatives on unhealthy.
+Therefore, accuracy alone is not sufficient: evaluation should also include macro-F1,
+class-wise recall, and confusion-matrix analysis.
+
+\subsection{Implemented preprocessing pipelines}
+Pipelines are defined in \texttt{configs/pipelines.json} with shared global parameters
+(\texttt{target\_sr=2000}, \texttt{chunk\_seconds=8.13}, \texttt{n\_fft=512},
+\texttt{hop\_length=128}, \texttt{n\_mels=128}, Mel band 20--300 Hz). The three variants
+used in the comparison are \texttt{trim}, \texttt{bandpass}, and
+\texttt{bandpass\_norm\_rms}.
+
+In all pipelines, audio is loaded in mono and then temporally standardized with
+\texttt{trim} to the target duration. In the \texttt{bandpass} variant, a Butterworth
+band-pass filter (20--300 Hz, order 4, with \texttt{filtfilt}) is applied to attenuate
+out-of-band components. In \texttt{bandpass\_norm\_rms}, RMS normalization is additionally
+applied to reduce volume variability across recordings. The final representation is obtained
+with \texttt{mel}, followed by \texttt{log1p} transformation to compress spectrogram dynamics
+and stabilize the network input.
+
+Pipeline parameters were not selected arbitrarily, but derived from iterative signal analysis
+and constraints imposed by CNN input requirements. In particular, filter band, chunk
+duration, and time-frequency parameters were chosen to balance general robustness,
+preservation of useful information, and reduced risk of overfitting to this specific dataset.
+
+With the selected parameters (\texttt{n\_mels=128}, \texttt{chunk\_seconds=8.13},
+\texttt{hop\_length=128}), the output of each pipeline is a 128x128 log-Mel spectrogram,
+stored in grayscale.
+
+\paragraph{Qualitative healthy/unhealthy example}
+To qualitatively visualize preprocessing effects, Figures \ref{fig:trim-log-pair} and
+\ref{fig:bnr-log-pair} show the same healthy/unhealthy file pair after the \texttt{log} step,
+for the \texttt{trim} and \texttt{bandpass\_norm\_rms} pipelines, respectively. In both
+images, the left panel is healthy and the right panel is unhealthy.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{sanity/pipeline_trim_20260213_153137/04_log.png}
+    \caption{Healthy/unhealthy pair with \texttt{trim} pipeline (log-Mel output)}
+    \label{fig:trim-log-pair}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{sanity/pipeline_bandpass_norm_rms_20260213_153230/06_log.png}
+    \caption{Healthy/unhealthy pair with \texttt{bandpass\_norm\_rms} pipeline (log-Mel output)}
+    \label{fig:bnr-log-pair}
+\end{figure}
+
+Visual analysis highlights a consistent difference between classes in both pipelines: the
+healthy sample shows richer temporal structure and energy spread extending more into
+mid-low bands, while the unhealthy sample shows energy more concentrated in low frequencies
+and sparser temporal patterns. In the direct comparison between \texttt{trim} and
+\texttt{bandpass\_norm\_rms}, global differences are moderate on this example, but the latter
+produces slightly cleaner maps with more regular contrast, consistent with the combined
+effect of band-pass filtering and RMS normalization.
+
+\subsection{CNN architecture and training parameters}
+The classifier is a ResNet18 initialized with pretrained ImageNet weights and adapted to
+binary classification by replacing the final layer. Spectrograms are converted to grayscale
+images replicated on 3 channels, resized to 224x224, and normalized.
+
+Three training runs were performed, one for each pipeline described above. Training was run
+for 10 epochs, batch size 32, Adam optimizer, and CrossEntropy loss. In addition,
+\texttt{WeightedRandomSampler} is enabled because, as discussed above, the dataset is strongly
+imbalanced, with an Imbalance Ratio of 3.87.
+
+\subsection{Technology stack}
+The project uses Python as scripting language,
+\texttt{numpy}/\texttt{scipy}/\texttt{librosa}/\texttt{soundfile} for audio processing,
+\texttt{matplotlib} for visualization and reporting, \texttt{torch} and \texttt{torchvision}
+for training and evaluation, and \texttt{scikit-learn} for classification metrics. The whole
+workflow is orchestrated through dedicated CLI scripts for preprocessing, training, sanity
+checks, and test evaluation.
+
+\section{Results}
+Evaluation reports the three \texttt{model\_best} runs for pipelines \texttt{bandpass},
+\texttt{bandpass\_norm\_rms}, and \texttt{trim}. All comparisons refer to the same test set
+(324 samples: 258 healthy and 66 unhealthy).
+
+\subsection*{Global metrics comparison}
+Table~\ref{tab:metriche-globali} summarizes the main comparison across accuracy, precision,
+recall, and weighted F1.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Global metrics comparison across pipelines}
+    \label{tab:metriche-globali}
+    \begin{tabular}{|l|c|c|c|c|}
+        \hline
+        \textbf{Pipeline} & \textbf{Accuracy} & \textbf{Precision weighted} & \textbf{Recall weighted} & \textbf{F1 weighted} \\
+        \hline
+        \texttt{bandpass} & 0.7531 & 0.7418 & 0.7531 & 0.7470 \\
+        \hline
+        \texttt{bandpass\_norm\_rms} & 0.7222 & 0.8461 & 0.7222 & 0.7489 \\
+        \hline
+        \texttt{trim} & 0.5926 & 0.7682 & 0.5926 & 0.6318 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+Weighted F1 is especially useful in this context because it accounts for the actual class
+frequencies in the test set, preventing the global result from being overly influenced by
+low-support classes. At the same time, it remains more informative than plain accuracy
+because it combines precision and recall into a single indicator.
+
+The \texttt{bandpass} pipeline achieves the best accuracy, while
+\texttt{bandpass\_norm\_rms} achieves the best weighted F1. The \texttt{trim} pipeline
+remains the least effective globally.
+
+\subsection*{Focus on the unhealthy class}
+Since the unhealthy class is minority and clinically relevant,
+Table~\ref{tab:metriche-unhealthy} reports class-specific precision, recall, and F1.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Metrics on the unhealthy class}
+    \label{tab:metriche-unhealthy}
+    \begin{tabular}{|l|c|c|c|}
+        \hline
+        \textbf{Pipeline} & \textbf{Precision unhealthy} & \textbf{Recall unhealthy} & \textbf{F1 unhealthy} \\
+        \hline
+        \texttt{bandpass} & 0.3793 & 0.3333 & 0.3548 \\
+        \hline
+        \texttt{bandpass\_norm\_rms} & 0.4143 & 0.8788 & 0.5631 \\
+        \hline
+        \texttt{trim} & 0.2963 & 0.7273 & 0.4211 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+The most relevant value is unhealthy recall: \texttt{bandpass\_norm\_rms} sharply reduces
+false negatives compared with the other pipelines, while \texttt{bandpass} favors the
+healthy class and misses many unhealthy samples.
+
+\subsection*{Visual support}
+Figures~\ref{fig:cm-normalizzate} and \ref{fig:global-metrics-plots} show normalized
+confusion matrices and global-metric plots for the three pipelines.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.32\textwidth]{metrics/pipeline_banpass_model_best_test/confusion_matrix_normalized.png}
+    \hfill
+    \includegraphics[width=0.32\textwidth]{metrics/pipeline_bnr_model_best_test/confusion_matrix_normalized.png}
+    \hfill
+    \includegraphics[width=0.32\textwidth]{metrics/pipeline_trim_model_best_test/confusion_matrix_normalized.png}
+    \caption{Normalized confusion matrices: \texttt{bandpass} (left),
+    \texttt{bandpass\_norm\_rms} (center), \texttt{trim} (right)}
+    \label{fig:cm-normalizzate}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.32\textwidth]{metrics/pipeline_banpass_model_best_test/global_metrics.png}
+    \hfill
+    \includegraphics[width=0.32\textwidth]{metrics/pipeline_bnr_model_best_test/global_metrics.png}
+    \hfill
+    \includegraphics[width=0.32\textwidth]{metrics/pipeline_trim_model_best_test/global_metrics.png}
+    \caption{Global-metric plots: \texttt{bandpass} (left),
+    \texttt{bandpass\_norm\_rms} (center), \texttt{trim} (right)}
+    \label{fig:global-metrics-plots}
+\end{figure}
+
+In summary, results highlight two distinct behaviors: \texttt{bandpass} is the best choice
+when maximizing overall accuracy, while \texttt{bandpass\_norm\_rms} is more robust when the
+priority is detection of the unhealthy class (higher recall and better weighted F1).
+
+\section{Conclusions}
+The project produced a solid and reproducible experimental basis to compare preprocessing
+pipelines for binary PCG classification. The main finding is that preprocessing strongly
+changes the trade-off between specificity on healthy and sensitivity on unhealthy: there is
+no single ``best'' pipeline in absolute terms, but a choice tied to the target metric and
+application context.
+
+A key methodological point is that, under class imbalance, accuracy and val\_acc can be
+overly optimistic if not complemented by class-wise metrics, weighted F1, and error
+analysis. Another important limitation is the amount of available data: the number of
+samples, especially for the unhealthy class, reduces model generalization and increases
+sensitivity to dataset-specific characteristics.
+
+Future work should therefore prioritize multi-seed/cross-validation comparisons, targeted
+data augmentation strategies to increase variability and improve class balance, and
+validation of the whole pipeline on larger and more heterogeneous external datasets. In
+parallel, it remains relevant to evaluate hybrid models with sequential/attention
+components and calibrate decision thresholds based on the clinical cost of false negatives.
+
+\section*{Web references (primary sources)}
+\begin{enumerate}[leftmargin=*,label=\arabic*.]
+    \item PhysioNet Challenge 2016 (official overview): \url{https://physionet.org/content/challenge-2016/}
+    \item Zabihi et al., Heart Sound Classification from Unsegmented Phonocardiograms Using Deep Learning (CinC 2016): \url{https://www.cinc.org/archives/2016/pdf/236-175.pdf}
+    \item Springer et al., Logistic Regression-HSMM-Based Heart Sound Segmentation (IEEE TBME 2016): \url{https://pubmed.ncbi.nlm.nih.gov/26340769/}
+\end{enumerate}
+
+\end{document}
