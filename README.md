@@ -1,116 +1,163 @@
-# PCG Heart Sound Pipelines Benchmark (Healthy vs Unhealthy)
+# PCG Heart Sound Pipelines
 
-Obiettivo: classificare registrazioni di suoni cardiaci (**PCG**) in due classi:
-- **healthy** (0)
-- **unhealthy** (1)
+Pipeline end-to-end per classificazione binaria di fonocardiogrammi (PCG):
+`healthy` vs `unhealthy`.
 
-Focus del progetto: **confrontare più pipeline di preprocessing** (prima della CNN) e motivare
-le differenze osservate tramite analisi del segnale (FFT/STFT/Mel) e metriche di classificazione.
+Il progetto copre tutto il flusso:
+1. preprocessing audio configurabile da JSON,
+2. conversione in log-mel spectrogram 128x128 (grayscale),
+3. training/evaluation di una CNN (ResNet18),
+4. report metrici e visuali.
 
----
+## A cosa serve la repo
+Questa repo serve per confrontare diverse pipeline di preprocessing sullo stesso dataset,
+misurarne l'impatto sulle metriche di classificazione e produrre artefatti riproducibili
+(checkpoint, confusion matrix, grafici metriche, sanity plot step-by-step).
 
-## Dataset
+## Struttura directory
+| Percorso | Scopo |
+|---|---|
+| `src/` | Logica core: operazioni audio, trasformate tempo-frequenza, loader dataset, builder pipeline. |
+| `configs/` | Configurazioni pipeline (`pipelines.json`). |
+| `scripts/` | Script operativi per download dati, sanity check e preprocessing in batch. |
+| `cnn/` | Script per training, valutazione su test e inferenza singola immagine. |
+| `data/` | Dataset audio `.wav` in split `train/`, `val/`, opzionale `test/`. |
+| `data_preprocessed/` | Dataset trasformato in immagini (`.png`) pronte per la CNN. |
+| `runs/` | Output esperimenti: sanity plot, checkpoint modello, metriche e grafici. |
+| `relazione_progetto_pcg.txt` | Relazione tecnica in formato testo. |
+| `relazione_progetto_pcg.tex` | Relazione tecnica in LaTeX. |
+| `requirements.txt` | Dipendenze Python del progetto. |
 
-Dataset Kaggle: **Heart Sound Database** (swapnilpanda/heart-sound-database).  
-Struttura attesa dopo il download:
-data/
-    train/
-        healthy/.wav
-        unhealthy/.wav
-    val/
-        healthy/.wav
-        unhealthy/.wav
+## Prerequisiti
+- Python 3.10+ (consigliato)
+- `pip`
+- Opzionale: Kaggle CLI (`kaggle`) se vuoi scaricare il dataset via script
 
-> Nota: il train risulta sbilanciato (molti più healthy che unhealthy).  
-> Questo va tenuto in considerazione nel training (metriche come F1 e uso di class weights).
-
----
-
-## Pipeline implementate finora
-
-Le pipeline sono definite in `configs/pipelines.json` come sequenza di step.
-
-### 1) `bandpass_mel` (pipeline “base”)
-- Load / Resample / Mono
-- **Band-pass filter** (es. 20–800 Hz)
-- Normalize RMS (volume)
-- Chunk/Pad (durata fissa)
-- **Mel-spectrogram + log**
-
-Motivazione: ridurre rumore fuori banda e fornire alla CNN una rappresentazione stabile e standard.
-
-### 2) `fft_denoise_mel` (denoising in frequenza)
-- Denoising basato su STFT/FFT (spectral gating)
-- Normalize RMS
-- Chunk/Pad
-- Mel-spectrogram + log
-
-Motivazione: denoising adattivo (dipende dal file), utile in presenza di rumore variabile.
-
-### 3) `wavelet_denoise_mel` (wavelets)
-- Wavelet denoise (thresholding)
-- Normalize RMS
-- Chunk/Pad
-- Mel-spectrogram + log
-
-Motivazione: denoising multi-scala per segnali non stazionari (utile per transienti).
-
----
-
-## Cosa è stato fatto fino ad ora (stato progetto)
-
-### 1) Download dataset + setup struttura cartelle
-Script: `scripts/download_data.py`  
-Scarica il dataset da Kaggle e lo organizza in `data/train` e `data/val`.
-
-### 2) Sanity check: pipeline produce spettrogrammi corretti
-Script: `scripts/sanity_check.py`  
-- Legge train/val
-- Applica la pipeline scelta a un sample healthy e uno unhealthy
-- Salva un PNG (`runs/sanity.png`) con i due Mel-spectrogrammi
-
-### 3) Audit del preprocessing (controllo numerico + visivo)
-Script: `scripts/audit_preprocessing.py`  
-Per ciascuna pipeline e per un piccolo numero di file per classe:
-- controlla durata finale (`chunk_len`)
-- controlla assenza di NaN/Inf
-- calcola statistiche (RMS e peak)
-- salva figure: waveform raw, FFT raw, waveform/process, FFT/process, Mel finale
-
-Output:
-- `runs/audit/<pipeline>/sample_*.png`
-- `runs/audit/<pipeline>/stats.json`
-- `runs/audit/summary.json`
-
-### Risultato importante emerso dall’audit
-- La pipeline `bandpass_mel` può aumentare i picchi (peak) a causa di effetti noti del filtro (filtfilt/overshoot).
-- Le pipeline `fft_denoise_mel` e `wavelet_denoise_mel` risultano più “stabili” sui peak.
-
-Questo porta a un prossimo intervento: **inserire un limiter/soft-clip dopo il band-pass** per rendere la pipeline più robusta.
-
-### 4) Data preprocessing (generazione dataset preprocessato)
-Script: `scripts/data_preprocessing.py`  
-
-Input:
-- cartella dataset con struttura `data/train|val/healthy|unhealthy/*.wav`
-- pipeline definita in `configs/pipelines.json`
-
-Azioni:
-- applica la pipeline scelta a **tutti** i file audio (train e val)
-- produce un Mel-spectrogramma per ogni file
-- salva i risultati in formato PNG
-- scrive un file `stats.txt` con data/ora del run e conteggi per split/classe
-
-Output:
-- cartella `data_preprocessed/pipeline_<pipeline_name>/train|val/healthy|unhealthy/*.png`
-- file `data_preprocessed/pipeline_<pipeline_name>/stats.txt`
-
----
-
-## Installazione (ambiente Python)
-usare virtual environment.
-
+## Installazione ambiente
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+## Formato dataset atteso
+Struttura consigliata:
+```text
+data/
+  train/
+    healthy/*.wav
+    unhealthy/*.wav
+  val/
+    healthy/*.wav
+    unhealthy/*.wav
+  test/                # opzionale ma consigliato per evaluate_testset.py
+    healthy/*.wav
+    unhealthy/*.wav
+```
+
+## Pipeline disponibili
+Definite in `configs/pipelines.json`:
+- `trim`
+- `bandpass`
+- `bandpass_norm_rms`
+
+Nota: alcuni script hanno default legacy (`bandpass_mel`), quindi è consigliato passare
+sempre `--pipeline` esplicitamente.
+
+## Workflow consigliato (quick start)
+
+### 1) (Opzionale) Download dataset da Kaggle
+```bash
+python3 scripts/download_data.py --data_dir data --force
+```
+Richiede autenticazione Kaggle configurata nel sistema.
+
+### 2) Sanity check rapido di una pipeline
+```bash
+python3 scripts/sanity_check.py \
+  --data_dir data \
+  --cfg configs/pipelines.json \
+  --pipeline bandpass_norm_rms \
+  --out_png runs/sanity.png
+```
+
+Per debug dettagliato step-by-step (waveform/FFT/spectrogrammi):
+```bash
+python3 scripts/sanity_check_vis.py \
+  --data_dir data \
+  --cfg configs/pipelines.json \
+  --pipeline bandpass_norm_rms \
+  --out_dir runs/sanity
+```
+
+### 3) Preprocessing batch da WAV a PNG
+```bash
+python3 scripts/data_preprocessing.py \
+  --data_dir data \
+  --cfg configs/pipelines.json \
+  --pipeline bandpass_norm_rms \
+  --out_dir data_preprocessed
+```
+
+Lo script crea una cartella timestampata, ad esempio:
+`data_preprocessed/pipeline_bandpass_norm_rms_YYYYMMDD_HHMM/`.
+
+Recupera l'ultima cartella generata:
+```bash
+PREP_DIR=$(ls -dt data_preprocessed/pipeline_bandpass_norm_rms_* | head -n1)
+echo "$PREP_DIR"
+```
+
+### 4) Training CNN
+```bash
+python3 cnn/train.py \
+  --data_dir "$PREP_DIR" \
+  --out_dir runs/cnn_checkpoint \
+  --epochs 10 \
+  --batch_size 32 \
+  --pretrained
+```
+
+### 5) Valutazione su test set
+```bash
+RUN_DIR=$(ls -dt runs/cnn_checkpoint/* | head -n1)
+python3 cnn/evaluate_testset.py \
+  --model_path "$RUN_DIR/model_best.pt" \
+  --test_dir "$PREP_DIR/test" \
+  --out_dir runs/metrics
+```
+
+### 6) Inferenza su una singola immagine
+```bash
+python3 cnn/infer.py \
+  --model_path "$RUN_DIR/model_best.pt" \
+  --input_path "$PREP_DIR/test/healthy/EXAMPLE.png"
+```
+
+## Script principali (cosa fanno)
+
+### `scripts/`
+- `download_data.py`: scarica dataset Kaggle e prepara `data/train`, `data/val`.
+- `sanity_check.py`: verifica veloce output pipeline su 1 healthy + 1 unhealthy.
+- `sanity_check_vis.py`: visualizzazione completa dei passaggi intermedi della pipeline.
+- `data_preprocessing.py`: applica pipeline a tutto il dataset e salva PNG.
+- `create_train_val_test_split.py`: utility per creare split da directory sorgente.
+
+### `cnn/`
+- `train.py`: training ResNet18 su immagini preprocessate (`train/` e `val/`).
+- `evaluate_testset.py`: metriche complete su test (accuracy, precision/recall/F1,
+  confusion matrix, plot globali e per-classe).
+- `infer.py`: predizione su singola immagine con probabilità per classe.
+
+## Output principali
+- `runs/sanity/`: plot diagnostici step-by-step e summary pipeline.
+- `runs/cnn_checkpoint/`: checkpoint training (`model_best.pt`, `model_last.pt`, epoche).
+- `runs/metrics/`: report valutazione (`metrics.json`, `stats.txt`, confusion matrix, plot).
+- `data_preprocessed/`: dataset PNG prodotto dal preprocessing.
+
+## Note operative
+- In presenza di dataset sbilanciato, valuta il modello con metriche per-classe e F1 weighted,
+  non solo accuracy.
+- Assicurati che `test/` sia presente nel dataset preprocessato se vuoi usare
+  `cnn/evaluate_testset.py`.
+- Se cambi pipeline, rigenera i PNG prima di rilanciare il training.

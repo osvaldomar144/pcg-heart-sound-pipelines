@@ -24,18 +24,6 @@ def load_audio(path: str, sr: int | None = None, mono: bool = True) -> tuple[np.
     return y.astype(np.float32), (sr if sr is not None else file_sr)
 
 
-def to_mono(y: np.ndarray) -> np.ndarray:
-    """
-    Placeholder per conversione a mono.
-
-    Nel nostro caso librosa.load(..., mono=True) fa già il lavoro.
-    La teniamo comunque per:
-    - chiarezza nella pipeline ("step" esplicito)
-    - futura compatibilità se decidiamo di gestire audio multicanale manualmente
-    """
-    return y.astype(np.float32)
-
-
 def normalize_rms(y: np.ndarray, target_rms: float = 0.05, eps: float = 1e-8) -> np.ndarray:
     """
     Normalizzazione del volume basata su RMS (energia media).
@@ -217,103 +205,6 @@ def stft(
         center=center,
     )
     return np.abs(stft_complex).astype(np.float32)
-
-
-def fft_denoise_spectral_gate(
-    y: np.ndarray,
-    sr: int,
-    n_fft: int = 512,
-    hop_length: int = 128,
-    prop_decrease: float = 0.8,
-) -> np.ndarray:
-    """
-    Denoising basato su STFT (quindi: finestre + FFT -> rappresentazione in frequenza nel tempo).
-    È un denoising "Fourier-like" perché lavora nello spazio tempo-frequenza.
-
-    Idea:
-    1) calcola STFT -> ottiene magnitudine (mag) e fase
-    2) stima un profilo di rumore guardando i frame con energia media più bassa (lowest 10%)
-    3) costruisce una mask: dove mag < noise_profile attenua
-    4) ricostruisce il segnale con iSTFT mantenendo la fase originale
-
-    Parametri:
-    - n_fft, hop_length: risoluzione della STFT
-    - prop_decrease: quanto attenuare sotto la soglia di rumore
-      (0.8 significa "riduci parecchio", ma non azzeri completamente)
-
-    Pro:
-    - adattivo: si adatta al rumore del singolo file
-    - spesso migliora robustezza su registrazioni rumorose
-
-    Contro:
-    - se la stima del rumore è sbagliata può attenuare parti utili
-    - più costoso computazionalmente del semplice band-pass
-    """
-    stft = librosa.stft(y, n_fft=n_fft, hop_length=hop_length)
-    mag = np.abs(stft)
-    phase = np.exp(1j * np.angle(stft))
-
-    # Energia media per frame (una proxy della "loudness" frame-by-frame)
-    frame_energy = mag.mean(axis=0)
-
-    # Stimiamo il rumore usando i frame più silenziosi (10% più bassi)
-    k = max(1, int(0.1 * len(frame_energy)))
-    noise_frames = np.argsort(frame_energy)[:k]
-    noise_profile = np.median(mag[:, noise_frames], axis=1, keepdims=True)
-
-    # Mask: se una componente spettrale è sotto il profilo rumore -> attenua
-    mask = mag >= noise_profile
-    mag_d = mag * (mask + (~mask) * (1 - prop_decrease))
-
-    # Ricostruzione nel dominio del tempo (usa la fase originale)
-    y_out = librosa.istft(mag_d * phase, hop_length=hop_length, length=len(y))
-    return y_out.astype(np.float32)
-
-
-def wavelet_denoise(y: np.ndarray, wavelet: str = "db6", level: int = 4, mode: str = "soft") -> np.ndarray:
-    """
-    Denoising con Wavelet:
-    - Decompone il segnale in coefficienti (approssimazione + dettagli a varie scale)
-    - Stima il rumore dai coefficienti di dettaglio ad alta frequenza
-    - Applica thresholding (soft/hard) ai dettagli
-    - Ricostruisce il segnale con wavelet inverse
-
-    Parametri:
-    - wavelet: tipo di wavelet (db6 è comune per segnali bio/PCG)
-    - level: profondità decomposizione
-    - mode: "soft" o "hard" thresholding
-      * soft: più “morbido”, riduce artefatti
-      * hard: taglia secco sopra/sotto soglia
-
-    Threshold:
-    - U-threshold (universal threshold): sigma * sqrt(2 log N)
-    - sigma stimata con MAD (median absolute deviation) / 0.6745
-
-    Pro:
-    - Buono su segnali non stazionari e rumore impulsivo
-    - Spesso preserva meglio transienti rispetto a filtri lineari
-
-    Contro:
-    - Parametri (wavelet/level) influenzano molto il risultato
-    - Se troppo aggressivo può “lisciare” il battito e perdere dettagli utili
-    """
-    coeffs = pywt.wavedec(y, wavelet, level=level)
-
-    # coeffs[-1] sono i dettagli al livello più alto (spesso dominati dal rumore)
-    detail = coeffs[-1]
-
-    # stima sigma con MAD (robusta)
-    sigma = (np.median(np.abs(detail)) / 0.6745) if detail.size else 0.0
-
-    # universal threshold
-    uthresh = sigma * np.sqrt(2 * np.log(len(y) + 1))
-
-    # Applica thresholding ai dettagli, lascia invariata l'approssimazione coeffs[0]
-    coeffs_t = [coeffs[0]] + [pywt.threshold(c, value=uthresh, mode=mode) for c in coeffs[1:]]
-
-    # Ricostruzione
-    y_rec = pywt.waverec(coeffs_t, wavelet)[: len(y)]
-    return y_rec.astype(np.float32)
 
 
 def wavelet_transform(

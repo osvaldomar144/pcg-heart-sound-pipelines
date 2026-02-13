@@ -8,7 +8,6 @@ import librosa
 # Importiamo gli "operatori" di preprocessing audio (dominio tempo)
 from .audio_ops import (
     load_audio,
-    to_mono,
     normalize_rms,
     normalize_peak,
     soft_clip,
@@ -16,14 +15,11 @@ from .audio_ops import (
     chunk_or_pad,
     butter_bandpass,
     stft,
-    fft_denoise_spectral_gate,
-    wavelet_denoise,
     wavelet_transform,
 )
 
 # Importiamo gli "operatori" di trasformata (dominio tempo-frequenza)
 from .tf_ops import mel_spectrogram, log1p
-from .segmentation import segment_hmm
 
 
 def build_pipeline(cfg: Dict[str, Any], name: str) -> Callable[[str], np.ndarray]:
@@ -40,7 +36,7 @@ def build_pipeline(cfg: Dict[str, Any], name: str) -> Callable[[str], np.ndarray
 
     Parametri:
     - cfg: dizionario caricato da configs/pipelines.json
-    - name: nome della pipeline (es. "bandpass_mel", "fft_denoise_mel"...)
+    - name: nome della pipeline (es. "bandpass", "bandpass_norm_rms"...)
 
     Ritorna:
     - run(path): funzione che prende un percorso .wav e restituisce uno spettrogramma 2D (n_mels, T).
@@ -75,8 +71,6 @@ def build_pipeline(cfg: Dict[str, Any], name: str) -> Callable[[str], np.ndarray
         y = None  # segnale audio (np.ndarray 1D)
         sr = None  # sample rate attuale
         S = None  # spettrogramma 2D (n_mels, T)
-        _segments = None  # placeholder per segmentazione (non usato nel return)
-
         # Eseguiamo gli step in ordine definito dal JSON
         for step in steps:
             # ------------------------
@@ -101,13 +95,6 @@ def build_pipeline(cfg: Dict[str, Any], name: str) -> Callable[[str], np.ndarray
                     sr = target_sr
 
             # ------------------------
-            # STEP: to_mono
-            # ------------------------
-            elif step == "to_mono":
-                # In pratica è un placeholder (librosa già fa mono=True), ma mantiene la pipeline esplicita.
-                y = to_mono(y)
-
-            # ------------------------
             # STEP: bandpass
             # ------------------------
             elif step == "bandpass":
@@ -120,35 +107,6 @@ def build_pipeline(cfg: Dict[str, Any], name: str) -> Callable[[str], np.ndarray
                     lowcut=bp["lowcut"],
                     highcut=bp["highcut"],
                     order=bp.get("order", 4),
-                )
-
-            # ------------------------
-            # STEP: fft_denoise
-            # ------------------------
-            elif step == "fft_denoise":
-                # Denoising basato su STFT (tempo-frequenza).
-                # È "Fourier-like" perché usa finestre+FFT per stimare e attenuare rumore.
-                dd = pipe_cfg.get("fft_denoise", {"prop_decrease": 0.8})
-                y = fft_denoise_spectral_gate(
-                    y,
-                    sr=sr,
-                    n_fft=tf_cfg["n_fft"],
-                    hop_length=tf_cfg["hop_length"],
-                    prop_decrease=dd.get("prop_decrease", 0.8),
-                )
-
-            # ------------------------
-            # STEP: wavelet_denoise
-            # ------------------------
-            elif step == "wavelet_denoise":
-                # Denoising con wavelet thresholding.
-                # Buono su segnali non stazionari / rumore impulsivo.
-                w = pipe_cfg.get("wavelet", {"wavelet": "db6", "level": 4, "mode": "soft"})
-                y = wavelet_denoise(
-                    y,
-                    wavelet=w["wavelet"],
-                    level=w["level"],
-                    mode=w["mode"],
                 )
 
             # ------------------------
@@ -264,39 +222,6 @@ def build_pipeline(cfg: Dict[str, Any], name: str) -> Callable[[str], np.ndarray
                 # rendendo più stabile la rappresentazione per la CNN.
                 S = log1p(S)
 
-            # ------------------------
-            # STEP: segment_hmm
-            # ------------------------
-            elif step == "segment_hmm":
-                # Segmentazione stile Springer con HMM.
-                # Nota: non altera S; mantiene solo la compatibilità con pipeline JSON.
-                seg = pipe_cfg.get(
-                    "segment_hmm",
-                    {
-                        "env_lp_hz": 8.0,
-                        "win_ms": 50.0,
-                        "hop_ms": 10.0,
-                        "min_bpm": 40.0,
-                        "max_bpm": 180.0,
-                        "peak_prom": 0.15,
-                        "s1_ms": 90.0,
-                        "s2_ms": 70.0,
-                    },
-                )
-                _segments, _ = segment_hmm(
-                    y=y,
-                    sr=sr,
-                    env_lp_hz=float(seg.get("env_lp_hz", 8.0)),
-                    win_ms=float(seg.get("win_ms", 50.0)),
-                    hop_ms=float(seg.get("hop_ms", 10.0)),
-                    min_bpm=float(seg.get("min_bpm", 40.0)),
-                    max_bpm=float(seg.get("max_bpm", 180.0)),
-                    peak_prom=float(seg.get("peak_prom", 0.15)),
-                    s1_ms=float(seg.get("s1_ms", 90.0)),
-                    s2_ms=float(seg.get("s2_ms", 70.0)),
-                )
-
-            # ------------------------
             # STEP non riconosciuto
             # ------------------------
             else:

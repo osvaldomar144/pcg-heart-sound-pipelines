@@ -12,7 +12,6 @@ import librosa
 from src.data import discover_dataset, split_items
 from src.audio_ops import (
     load_audio,
-    to_mono,
     normalize_rms,
     normalize_peak,
     soft_clip,
@@ -20,8 +19,6 @@ from src.audio_ops import (
     chunk_or_pad,
     butter_bandpass,
     stft,
-    fft_denoise_spectral_gate,
-    wavelet_denoise,
     wavelet_transform,
 )
 from src.tf_ops import mel_spectrogram, log1p
@@ -42,28 +39,12 @@ def step_params(step: str, cfg: dict, pipe_cfg: dict) -> dict:
         return {"sr": "originale", "mono": audio_cfg.get("mono", True)}
     if step == "resample":
         return {"target_sr": int(audio_cfg["target_sr"])}
-    if step == "to_mono":
-        return {}
     if step == "bandpass":
         bp = pipe_cfg.get("bandpass", {"lowcut": 20, "highcut": 800, "order": 4})
         return {
             "lowcut": bp["lowcut"],
             "highcut": bp["highcut"],
             "order": bp.get("order", 4),
-        }
-    if step == "fft_denoise":
-        dd = pipe_cfg.get("fft_denoise", {"prop_decrease": 0.8})
-        return {
-            "n_fft": tf_cfg["n_fft"],
-            "hop_length": tf_cfg["hop_length"],
-            "prop_decrease": dd.get("prop_decrease", 0.8),
-        }
-    if step == "wavelet_denoise":
-        w = pipe_cfg.get("wavelet", {"wavelet": "db6", "level": 4, "mode": "soft"})
-        return {
-            "wavelet": w["wavelet"],
-            "level": w["level"],
-            "mode": w["mode"],
         }
     if step == "normalize_rms":
         return {}
@@ -178,9 +159,6 @@ def run_steps(path: str, cfg: dict, pname: str) -> list[dict]:
                 y = librosa.resample(y, orig_sr=sr, target_sr=target_sr).astype(np.float32)
                 sr = target_sr
             outputs.append({"step": step, "kind": "audio", "sr": sr, "data": y})
-        elif step == "to_mono":
-            y = to_mono(y)
-            outputs.append({"step": step, "kind": "audio", "sr": sr, "data": y})
         elif step == "bandpass":
             bp = pipe_cfg.get("bandpass", {"lowcut": 20, "highcut": 800, "order": 4})
             y = butter_bandpass(
@@ -190,20 +168,6 @@ def run_steps(path: str, cfg: dict, pname: str) -> list[dict]:
                 highcut=bp["highcut"],
                 order=bp.get("order", 4),
             )
-            outputs.append({"step": step, "kind": "audio", "sr": sr, "data": y})
-        elif step == "fft_denoise":
-            dd = pipe_cfg.get("fft_denoise", {"prop_decrease": 0.8})
-            y = fft_denoise_spectral_gate(
-                y,
-                sr=sr,
-                n_fft=tf_cfg["n_fft"],
-                hop_length=tf_cfg["hop_length"],
-                prop_decrease=dd.get("prop_decrease", 0.8),
-            )
-            outputs.append({"step": step, "kind": "audio", "sr": sr, "data": y})
-        elif step == "wavelet_denoise":
-            w = pipe_cfg.get("wavelet", {"wavelet": "db6", "level": 4, "mode": "soft"})
-            y = wavelet_denoise(y, wavelet=w["wavelet"], level=w["level"], mode=w["mode"])
             outputs.append({"step": step, "kind": "audio", "sr": sr, "data": y})
         elif step == "normalize_rms":
             y = normalize_rms(y)
