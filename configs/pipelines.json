@@ -1,0 +1,30 @@
+{
+  "audio": {
+    "target_sr": 2000,
+    "chunk_seconds": 8.13,
+    "mono": true
+  },
+  "tf": {
+    "n_fft": 512,
+    "hop_length": 128,
+    "win_length": 512,
+    "window": "hann",
+    "n_mels": 128,
+    "fmin": 20,
+    "fmax": 300
+  },
+  "pipelines": {  
+
+    "trim": {
+      "steps": ["load","trim","mel","log"]
+    },
+    "bandpass": {
+      "steps": ["load", "trim", "bandpass","mel","log"],
+      "bandpass": {"lowcut": 20, "highcut": 300, "order": 4}
+    },
+    "bandpass_norm_rms": {
+      "steps": ["load", "trim", "bandpass", "normalize_rms","mel", "log"],
+      "bandpass": {"lowcut": 20, "highcut": 300, "order": 4}
+    }
+  }
+}

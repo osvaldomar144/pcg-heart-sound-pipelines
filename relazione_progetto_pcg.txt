@@ -1,0 +1,160 @@
+Titolo: Classificazione binaria di segnali PCG con focus su preprocessing
+Autore: Relazione tecnica del progetto Python pcg-heart-sound-pipelines
+Data: 13 febbraio 2026
+
+ABSTRACT
+Questo progetto affronta la classificazione binaria di fonocardiogrammi (PCG) in classi 
+healthy/unhealthy, usando dati derivati dalla challenge PhysioNet/CinC 2016. L'obiettivo
+principale e' valutare in modo sistematico l'impatto del preprocessing prima dell'addestramento di
+una CNN. Sono state confrontate pipeline modulari basate su trim, filtraggio band-pass e
+normalizzazione RMS, seguite da trasformata Mel e compressione logaritmica. I risultati mostrano
+che il preprocessing influisce in modo sostanziale sul compromesso tra accuracy globale e capacita'
+di riconoscere la classe minoritaria unhealthy. Il contributo principale del lavoro e' quindi
+metodologico: confronto riproducibile tra pipeline e analisi dei limiti di un baseline CNN su
+dataset sbilanciato.
+
+INTRODUZIONE
+La classificazione automatica dei suoni cardiaci e' un problema rilevante per screening precoce e 
+triage, soprattutto in contesti con risorse limitate. I segnali PCG sono pero' complessi da 
+modellare perche' sono spesso affetti da rumore ambientale, artefatti di acquisizione e 
+variabilita' fisiologica intra/inter-paziente. A questo si aggiunge lo sbilanciamento tra classi, 
+che puo' spostare il comportamento del modello verso la classe maggioritaria.
+
+Nel progetto e' stata costruita una pipeline end-to-end composta da preprocessing audio 
+configurabile, conversione in rappresentazione tempo-frequenza (Mel spectrogram) e classificazione 
+con CNN. La priorita' e' stata posta sul preprocessing, perche' nella pratica i modelli PCG sono 
+molto sensibili a come il segnale viene filtrato, normalizzato e uniformato temporalmente.
+
+STATO DELL'ARTE
+La challenge PhysioNet/CinC 2016 resta il benchmark storico piu' usato per classificazione 
+normal/abnormal su PCG. In generale, la letteratura riporta risultati sensibilmente migliori di
+quelli ottenuti in questo progetto baseline, ma tali prestazioni derivano quasi sempre da pipeline
+piu' complesse.
+
+Le soluzioni di punta non si basano su una semplice CNN applicata a Mel-spectrogrammi: integrano
+tipicamente preprocessing avanzato, segmentazione cardiaca esplicita delle fasi del battito e
+strategie di riduzione del rumore piu' sofisticate. Inoltre, oltre alle CNN classiche, vengono
+impiegati modelli sequenziali e ibridi, ad esempio LSTM/BiLSTM o combinazioni tra piu' blocchi
+architetturali.
+
+In sintesi, il confronto con lo stato dell'arte suggerisce che questo lavoro rappresenta un buon
+punto di partenza metodologico, ma che per colmare il gap prestazionale sono necessari
+preprocessing e modelli piu' avanzati.
+
+METODI E TECNOLOGIE
+
+Dataset
+Il dataset era inizialmente disponibile come unico blocco di training. Per costruire un protocollo
+sperimentale completo, questo insieme e' stato suddiviso in train, validation e test con
+frazionamento stratificato 80%-15%-5%, mantenendo una distribuzione healthy/unhealthy il piu'
+coerente possibile tra i tre split.
+
+I dati di base sono file audio `.wav` campionati a 2000 Hz, con durata variabile tra le diverse
+registrazioni. Il dataset e' inoltre eterogeneo per contesto di acquisizione: i punti di
+auscultazione possono cambiare da file a file, ma questa informazione non e' riportata in modo
+strutturato nei metadati usati nel progetto. Anche la classe `unhealthy` e' etichettata in forma
+aggregata: segnala la presenza di anomalia, ma non specifica in modo sistematico la patologia
+cardiaca sottostante.
+
+Dal punto di vista statistico il problema è sbilanciato. L'Imbalance Ratio, definito come
+N(healthy)/N(unhealthy), e' circa 3.87: in pratica la classe healthy e' quasi quattro volte piu'
+rappresentata della classe unhealthy. Questo significa che un classificatore banale che predice
+sempre healthy puo' ottenere un'accuracy apparentemente alta, senza essere pero' utile in termini
+clinici.
+
+In training, questo sbilanciamento tende a favorire la classe maggioritaria durante
+l'ottimizzazione, con rischio di recall piu' basso sulla classe minoritaria e aumento dei falsi
+negativi su unhealthy. Per questo la sola accuracy non basta: la valutazione deve includere anche
+macro-F1, recall per classe e analisi della confusion matrix.
+
+Pipeline di preprocessing implementate
+Le pipeline sono definite in `configs/pipelines.json` con parametri globali condivisi 
+(`target_sr=2000`, `chunk_seconds=8.13`, `n_fft=512`, `hop_length=128`, `n_mels=128`, banda Mel 
+20-300 Hz). Le varianti effettivamente usate nel confronto sono tre: `trim`, `bandpass` e 
+`bandpass_norm_rms`.
+
+In tutte le pipeline il file audio viene caricato in mono, poi uniformato temporalmente con `trim`
+alla durata target. Nella variante `bandpass` viene applicato un Butterworth passa-banda (20-300
+Hz, ordine 4, con `filtfilt`) per attenuare componenti fuori banda cardiaca. Nella variante
+`bandpass_norm_rms` si aggiunge anche la normalizzazione RMS per ridurre la variabilita' di volume
+tra registrazioni. La rappresentazione finale e' ottenuta con `mel`, seguita da trasformazione
+`log1p` per comprimere la dinamica dello spettrogramma e stabilizzare l'input alla rete.
+
+Con i parametri scelti (`n_mels=128`, `chunk_seconds=8.13`, `hop_length=128`), l'uscita di ogni
+pipeline e' un log-mel spettrogramma di dimensione 128x128, salvato in scala di grigi.
+
+I parametri delle pipeline non sono stati scelti in modo arbitrario, ma derivano da analisi
+iterative dei segnali e dai vincoli imposti dall'input richiesto dalla CNN. In particolare, banda
+del filtro, durata del chunk e parametri tempo-frequenza sono stati definiti cercando un
+compromesso tra robustezza generale, preservazione dell'informazione utile e riduzione del rischio
+di overfitting su questo specifico dataset.
+
+CNN - Architettura e parametri di training
+Il classificatore e' una ResNet18, inizializzata con pesi pretrained ImageNet e 
+adattata alla classificazione binaria sostituendo il layer finale. Gli 
+spettrogrammi vengono convertiti in immagini grayscale replicate a 3 canali, ridimensionate a 
+224x224 e normalizzate.
+
+Sono stati eseguiti tre addestramenti, uno per ogni pipeline sopra proposta. L'addestramento e' 
+stato eseguito per 10 epoche, batch 
+size 32, ottimizzatore Adam e loss CrossEntropy. 
+Inoltre vi è la presenza di `WeightedRandomSampler` in quanto come già descritto sopra il dataset 
+presenta
+un forte sbilanciamento, con un Imbalance Ratio pari a 3.87 .
+
+Stack tecnologico
+Per la realizzazione del progetto descritto si è utilizzato Python come linguaggio di scripting, 
+`numpy`/`scipy`/`librosa`/`soundfile` per l'elaborazione audio, 
+`matplotlib` per visualizzazione e reportistica, `torch` e `torchvision` per training ed 
+evaluation, e `scikit-learn` per le metriche di classificazione. L'intero flusso e' orchestrato da 
+script CLI dedicati per preprocessing, training, sanity check e valutazione su test set.
+
+RISULTATI
+La valutazione su test e' stata condotta sui run in `runs/metrics` (324 campioni: 258 healthy e 66 
+unhealthy). Le tre pipeline mostrano comportamenti differenti a seconda della metrica osservata.
+
+La pipeline `bandpass` raggiunge la migliore accuracy complessiva (0.7531), ma con recall unhealthy 
+pari a 0.3333 e 44 falsi negativi, quindi con una sensibilita' limitata proprio sulla classe 
+clinicamente piu' critica. La pipeline `bandpass_norm_rms` scende in accuracy (0.7222), ma migliora 
+nettamente la capacita' di intercettare unhealthy (recall 0.8788, solo 8 falsi negativi) e ottiene 
+il miglior F1 macro (0.6797). La pipeline `trim` risulta la meno robusta nel confronto, con 
+accuracy 0.5926 e F1 macro 0.5534.
+
+Il confronto tra checkpoint `best` e `last` mostra inoltre una certa instabilita' nelle epoche 
+finali per alcune pipeline: `bandpass` resta sostanzialmente stabile, mentre `bandpass_norm_rms` e 
+`trim` peggiorano nel passaggio a `last`. In parallelo, i migliori valori di validazione salvati in 
+`runs/cnn_checkpoint` sono elevati (`bandpass` 0.8827, `trim` 0.8704, `bandpass_norm_rms` 0.8519), 
+ma non sempre si traducono nel miglior comportamento sul test della classe minoritaria. Questo 
+conferma che val_acc, da sola, non basta per scegliere la pipeline in un problema sbilanciato.
+
+In termini applicativi, se l'obiettivo e' massimizzare accuracy globale la scelta ricade su 
+`bandpass`; se invece la priorita' e' ridurre i falsi negativi su unhealthy, `bandpass_norm_rms` e' 
+la soluzione piu' coerente.
+
+CONCLUSIONI
+Il progetto ha prodotto una base sperimentale solida e riproducibile per confrontare pipeline di 
+preprocessing in classificazione PCG binaria. Il risultato principale e' che il preprocessing 
+modifica in modo sostanziale il trade-off tra specificita' sulla classe healthy e sensibilita' 
+sulla classe unhealthy: non esiste quindi una pipeline "migliore" in assoluto, ma una scelta legata 
+alla metrica obiettivo e al contesto di utilizzo.
+
+La principale evidenza metodologica e' che, in presenza di sbilanciamento, accuracy e val_acc 
+possono essere ottimistiche se non accompagnate da metriche macro/per-classe e analisi degli 
+errori. Come sviluppi futuri, risultano prioritari un confronto multi-seed/cross-validation, 
+tecniche di augmentation mirate e modelli ibridi con componente sequenziale o attenzione, insieme a 
+una calibrazione della soglia decisionale orientata al costo clinico dei falsi negativi.
+
+RIFERIMENTI WEB (fonti primarie)
+1. PhysioNet Challenge 2016 (overview ufficiale): https://physionet.org/content/challenge-2016/
+2. Liu et al., The PhysioNet/Computing in Cardiology Challenge 2016 (CinC paper): 
+https://www.cinc.org/archives/2016/pdf/001.pdf
+3. Potes et al., Ensemble of feature-based and deep learning-based classifiers (CinC 2016): 
+https://www.cinc.org/archives/2016/pdf/658.pdf
+4. Zabihi et al., Heart Sound Classification from Unsegmented Phonocardiograms Using Deep Learning 
+(CinC 2016): https://www.cinc.org/archives/2016/pdf/236-175.pdf
+5. Rubin et al., Recognizing abnormal heart sounds using deep learning (CinC 2016): 
+https://www.cinc.org/archives/2016/pdf/411-124.pdf
+6. Nilanon et al., Normal/abnormal heart sound recordings classification using CNN (CinC 2016): 
+https://www.cinc.org/archives/2016/pdf/609-249.pdf
+7. Springer et al., Logistic Regression-HSMM-Based Heart Sound Segmentation (IEEE TBME 2016): 
+https://pubmed.ncbi.nlm.nih.gov/26340769/

@@ -1,0 +1,29 @@
+run_datetime: 2026-02-13T15:32:30
+pipeline: bandpass_norm_rms
+cfg_file: configs/pipelines.json
+seed: 24
+sample_healthy: data/train/healthy/e01932.wav
+sample_unhealthy: data/train/unhealthy/c0018.wav
+
+steps:
+01. load
+    - sr: originale
+    - mono: True
+02. trim
+    - seconds: 8.13
+03. bandpass
+    - lowcut: 20
+    - highcut: 300
+    - order: 4
+04. normalize_rms
+    - params: none
+05. mel
+    - n_fft: 512
+    - hop_length: 128
+    - win_length: 512
+    - window: hann
+    - n_mels: 128
+    - fmin: 20
+    - fmax: 300
+06. log
+    - transform: log1p
